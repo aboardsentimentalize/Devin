@@ -6,14 +6,9 @@
 <title>Transatlantic Translator</title>
 <style>
   :root {
-    --bg: #f6f6f3; --card: #ffffff; --text: #1d1d1f; --muted: #6e6e73;
-    --border: #e4e4df; --accent: #2b50d6; --mark: #fff0b3; --mark-line: #e9bf3c;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #131315; --card: #1c1c1f; --text: #f2f2f2; --muted: #9a9aa1;
-      --border: #2d2d32; --accent: #7d9bff; --mark: #4a3c0b; --mark-line: #b08f25;
-    }
+    --bg: #000000; --card: #111114; --text: #f2f2f2; --muted: #9a9aa1;
+    --border: #2d2d32; --accent: #7d9bff; --mark: #4a3c0b; --mark-line: #b08f25;
+    --neon: #00b7ff; --neon-glow: rgba(0, 183, 255, 0.6);
   }
   * { box-sizing: border-box; }
   body {
@@ -38,11 +33,15 @@
   .spacer { flex: 1; }
   .panes { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
   @media (max-width: 760px) { .panes { grid-template-columns: 1fr; } }
-  .pane { background: var(--card); border: 1px solid var(--border); border-radius: 14px; display: flex; flex-direction: column; min-height: 320px; }
-  .pane:focus-within { border-color: var(--accent); }
+  .pane {
+    background: #03060c; border: 2px solid var(--neon); border-radius: 14px; display: flex; flex-direction: column; min-height: 320px;
+    box-shadow: 0 0 6px var(--neon), 0 0 18px var(--neon-glow), inset 0 0 12px rgba(0, 183, 255, 0.18);
+    transition: box-shadow .2s;
+  }
+  .pane:focus-within { box-shadow: 0 0 8px var(--neon), 0 0 28px var(--neon-glow), 0 0 48px rgba(0, 183, 255, 0.35), inset 0 0 14px rgba(0, 183, 255, 0.25); }
   .pane-head {
     display: flex; justify-content: space-between; align-items: center; padding: 12px 16px;
-    border-bottom: 1px solid var(--border); font-size: 12px; color: var(--muted);
+    border-bottom: 1px solid rgba(0, 183, 255, 0.35); font-size: 12px; color: var(--muted);
     text-transform: uppercase; letter-spacing: 0.07em;
   }
   .link {
