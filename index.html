@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Transatlantic Translator</title>
+<style>
+  :root {
+    --bg: #f6f6f3; --card: #ffffff; --text: #1d1d1f; --muted: #6e6e73;
+    --border: #e4e4df; --accent: #2b50d6; --mark: #fff0b3; --mark-line: #e9bf3c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #131315; --card: #1c1c1f; --text: #f2f2f2; --muted: #9a9aa1;
+      --border: #2d2d32; --accent: #7d9bff; --mark: #4a3c0b; --mark-line: #b08f25;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  main { max-width: 1040px; margin: 0 auto; padding: 48px 20px 32px; }
+  h1 { margin: 0; font-size: 28px; letter-spacing: -0.02em; }
+  .tagline { margin: 6px 0 0; color: var(--muted); }
+  .controls { display: flex; align-items: center; gap: 12px; margin: 28px 0 16px; flex-wrap: wrap; }
+  .toggle { display: inline-flex; background: var(--card); border: 1px solid var(--border); border-radius: 999px; padding: 4px; }
+  .toggle button {
+    border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 14px;
+    padding: 8px 16px; border-radius: 999px; cursor: pointer; transition: background .15s, color .15s;
+  }
+  .toggle button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+  .btn {
+    border: 1px solid var(--border); background: var(--card); color: var(--text); font: inherit; font-size: 14px;
+    padding: 8px 14px; border-radius: 999px; cursor: pointer;
+  }
+  .btn:hover, .toggle button:hover:not([aria-pressed="true"]) { color: var(--accent); }
+  .spacer { flex: 1; }
+  .panes { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 760px) { .panes { grid-template-columns: 1fr; } }
+  .pane { background: var(--card); border: 1px solid var(--border); border-radius: 14px; display: flex; flex-direction: column; min-height: 320px; }
+  .pane:focus-within { border-color: var(--accent); }
+  .pane-head {
+    display: flex; justify-content: space-between; align-items: center; padding: 12px 16px;
+    border-bottom: 1px solid var(--border); font-size: 12px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.07em;
+  }
+  .link {
+    border: 0; background: none; color: var(--accent); font: inherit; font-size: 13px; cursor: pointer;
+    text-transform: none; letter-spacing: 0; padding: 0; margin-left: 12px;
+  }
+  textarea, .output {
+    flex: 1; width: 100%; min-height: 270px; padding: 16px; border: 0; outline: none; resize: none;
+    background: transparent; color: inherit; font: inherit; font-size: 17px; line-height: 1.6;
+    white-space: pre-wrap; overflow-wrap: break-word;
+  }
+  textarea::placeholder, .output:empty::before { color: var(--muted); opacity: .8; }
+  .output:empty::before { content: attr(data-placeholder); }
+  mark {
+    background: var(--mark); color: inherit; border-radius: 3px; padding: 0 1px;
+    box-shadow: inset 0 -2px 0 var(--mark-line); cursor: help;
+  }
+  .status { margin-top: 14px; font-size: 13px; color: var(--muted); min-height: 1.5em; }
+  footer { margin-top: 36px; font-size: 13px; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Transatlantic Translator</h1>
+    <p class="tagline">British English &harr; American English, as you type.</p>
+  </header>
+
+  <div class="controls">
+    <div class="toggle" role="group" aria-label="Translation direction">
+      <button type="button" data-dir="b2a" aria-pressed="true">British &rarr; American</button>
+      <button type="button" data-dir="a2b" aria-pressed="false">American &rarr; British</button>
+    </div>
+    <button type="button" class="btn" id="swap" title="Swap direction and move the translation into the input">&#8644; Swap</button>
+    <span class="spacer"></span>
+    <button type="button" class="btn" id="example">Try an example</button>
+  </div>
+
+  <div class="panes">
+    <section class="pane">
+      <div class="pane-head">
+        <span id="input-label">British English</span>
+        <button type="button" class="link" id="clear">Clear</button>
+      </div>
+      <textarea id="input" spellcheck="false" autofocus placeholder="Type or paste British English…"></textarea>
+    </section>
+    <section class="pane">
+      <div class="pane-head">
+        <span id="output-label">American English</span>
+        <button type="button" class="link" id="copy">Copy</button>
+      </div>
+      <div class="output" id="output" aria-live="polite" data-placeholder="Translation appears here."></div>
+    </section>
+  </div>
+
+  <div class="status" id="status"></div>
+  <footer>Highlighted words were changed &mdash; hover one to see the original. Works offline; nothing leaves your browser.</footer>
+</main>
+
+<script>
+/* ---------- Dictionary ----------
+ * Each entry: [British, American, flags]
+ *   flags: "b" = only British→American, "a" = only American→British,
+ *          "n" = don't auto-generate a plural (VOCAB),  "p" = do generate a plural (SPELLING)
+ * Ambiguous words (e.g. "line", "fall", "boot") are one-way to avoid mangling ordinary text.
+ */
+const VOCAB = [
+  // Getting around
+  ['boot', 'trunk'], ['bonnet', 'hood'], ['lorry', 'truck'], ['windscreen', 'windshield'],
+  ['number plate', 'license plate'], ['gearstick', 'stick shift'], ['indicator', 'turn signal', 'b'],
+  ['petrol', 'gas', 'n'], ['petrol station', 'gas station'], ['car park', 'parking lot'],
+  ['motorway', 'highway'], ['dual carriageway', 'divided highway'], ['roundabout', 'traffic circle'],
+  ['zebra crossing', 'crosswalk'], ['pedestrian crossing', 'crosswalk', 'b'], ['pavement', 'sidewalk'],
+  ['flyover', 'overpass'], ['level crossing', 'railroad crossing'], ['railway', 'railroad'],
+  ['underground', 'subway', 'a'], ['return ticket', 'round-trip ticket'], ['single ticket', 'one-way ticket'],
+  ['timetable', 'schedule', 'b'], ['estate car', 'station wagon'], ['caravan', 'trailer', 'b'],
+  ['lay-by', 'rest stop'], ['diversion', 'detour', 'b'], ['motorbike', 'motorcycle', 'b'],
+  ['crossroads', 'intersection', 'n'], ['removal van', 'moving van'], ['lorry driver', 'truck driver'],
+  ['tyre', 'tire', 'b'], ['holidaymaker', 'vacationer'],
+  // Home
+  ['flat', 'apartment'], ['flatmate', 'roommate'], ['lift', 'elevator'], ['tap', 'faucet', 'b'],
+  ['rubbish', 'trash', 'n'], ['rubbish bin', 'trash can', 'b'], ['bin', 'trash can'],
+  ['dustbin', 'garbage can'], ['dustman', 'garbage man'], ['wardrobe', 'closet'], ['cupboard', 'cabinet', 'b'],
+  ['cooker', 'stove'], ['hob', 'stovetop'], ['washing-up liquid', 'dish soap', 'n'],
+  ['kitchen roll', 'paper towels', 'n'], ['cling film', 'plastic wrap', 'n'], ['tin foil', 'aluminum foil', 'n'],
+  ['tea towel', 'dish towel'], ['duvet', 'comforter'], ['hoover', 'vacuum cleaner', 'b'],
+  ['torch', 'flashlight'], ['spanner', 'wrench'], ['drawing pin', 'thumbtack'], ['sellotape', 'Scotch tape', 'n'],
+  ['answerphone', 'answering machine'], ['mobile phone', 'cell phone'], ['mobile', 'cell phone', 'b'],
+  ['postcode', 'zip code'], ['postman', 'mailman'], ['post box', 'mailbox'], ['letterbox', 'mail slot', 'b'],
+  ['estate agent', 'real estate agent'], ['terraced house', 'row house'], ['council estate', 'housing project'],
+  ['storey', 'story', 'b'], ['flannel', 'washcloth', 'b'], ['plaster', 'Band-Aid', 'b'],
+  ['nappy', 'diaper'], ['dummy', 'pacifier'], ['pram', 'stroller'], ['pushchair', 'stroller', 'b'], ['cot', 'crib'],
+  // Food & drink
+  ['biscuit', 'cookie'], ['crisps', 'chips', 'n'], ['chips', 'fries', 'n'], ['chips', 'french fries', 'an'],
+  ['sweets', 'candy', 'n'], ['candyfloss', 'cotton candy', 'n'], ['ice lolly', 'popsicle'],
+  ['fizzy drink', 'soda'], ['aubergine', 'eggplant'], ['courgette', 'zucchini'], ['coriander', 'cilantro', 'n'],
+  ['rocket', 'arugula', 'bn'], ['spring onion', 'scallion'], ['beetroot', 'beet'], ['swede', 'rutabaga'],
+  ['gherkin', 'pickle'], ['prawn', 'shrimp', 'b'], ['mince', 'ground beef', 'n'], ['minced beef', 'ground beef', 'bn'],
+  ['porridge', 'oatmeal', 'n'], ['treacle', 'molasses', 'n'], ['jacket potato', 'baked potato'],
+  ['icing sugar', 'powdered sugar', 'n'], ['caster sugar', 'superfine sugar', 'n'],
+  ['plain flour', 'all-purpose flour', 'n'], ['single cream', 'light cream', 'n'], ['double cream', 'heavy cream', 'n'],
+  ['bicarbonate of soda', 'baking soda', 'n'], ['starter', 'appetizer'], ['pudding', 'dessert', 'b'],
+  ['takeaway', 'takeout'], ['off-licence', 'liquor store'], ['banger', 'sausage', 'b'],
+  // Clothes
+  ['jumper', 'sweater'], ['trousers', 'pants', 'n'], ['pants', 'underwear', 'n'], ['knickers', 'panties', 'n'],
+  ['trainers', 'sneakers', 'n'], ['waistcoat', 'vest'], ['vest', 'undershirt'], ['braces', 'suspenders', 'bn'],
+  ['tights', 'pantyhose', 'n'], ['swimming costume', 'swimsuit'], ['dressing gown', 'bathrobe'],
+  ['nightdress', 'nightgown'], ['polo neck', 'turtleneck'], ['wellies', 'rain boots', 'n'], ['anorak', 'parka'],
+  ['fringe', 'bangs', 'bn'], ['nappy pin', 'diaper pin'],
+  // People, places, everyday life
+  ['holiday', 'vacation'], ['bank holiday', 'public holiday', 'b'], ['queue', 'line', 'b'], ['autumn', 'fall', 'bn'],
+  ['fortnight', 'two weeks', 'b'], ['football', 'soccer', 'n'], ['football pitch', 'soccer field'],
+  ['nil', 'zero', 'bn'], ['noughts and crosses', 'tic-tac-toe', 'n'], ['draughts', 'checkers', 'n'],
+  ['fancy dress', 'costume', 'bn'], ['cinema', 'movie theater'], ['film', 'movie'], ['telly', 'TV', 'b'],
+  ['advert', 'commercial'], ['mum', 'mom'], ['maths', 'math', 'n'], ['headteacher', 'principal'],
+  ['headmaster', 'principal', 'b'], ['secondary school', 'high school'], ['primary school', 'elementary school'],
+  ['rubber', 'eraser', 'b'], ['biro', 'ballpoint pen'], ['full stop', 'period', 'b'],
+  ['inverted commas', 'quotation marks', 'n'], ['brackets', 'parentheses', 'bn'], ['zed', 'zee'],
+  ['chemist', 'pharmacy'], ['shop assistant', 'sales clerk'], ['high street', 'main street'],
+  ['city centre', 'downtown', 'n'], ['trolley', 'cart', 'b'], ['solicitor', 'lawyer', 'b'],
+  ['paracetamol', 'acetaminophen', 'n'], ['mate', 'buddy', 'b'], ['toilet', 'restroom', 'b'], ['loo', 'bathroom', 'b'],
+];
+
+const SPELLING = [
+  ['grey', 'gray'], ['greys', 'grays'], ['aluminium', 'aluminum'], ['plough', 'plow', 'p'],
+  ['mould', 'mold', 'p'], ['mouldy', 'moldy'], ['smoulder', 'smolder', 'p'], ['moult', 'molt'],
+  ['sceptic', 'skeptic', 'p'], ['sceptical', 'skeptical'], ['scepticism', 'skepticism'],
+  ['programme', 'program', 'p'], ['jewellery', 'jewelry'], ['pyjamas', 'pajamas'],
+  ['cosy', 'cozy'], ['cosier', 'cozier'], ['cosiest', 'coziest'], ['draught', 'draft', 'bp'],
+  ['moustache', 'mustache', 'p'], ['ageing', 'aging'], ['judgement', 'judgment', 'p'],
+  ['acknowledgement', 'acknowledgment', 'p'], ['cheque', 'check', 'bp'], ['doughnut', 'donut', 'p'],
+  ['practise', 'practice', 'b'], ['practised', 'practiced', 'b'], ['practising', 'practicing', 'b'],
+  ['practises', 'practices', 'b'], ['licence', 'license', 'bp'], ['defence', 'defense', 'p'],
+  ['offence', 'offense', 'p'], ['pretence', 'pretense', 'p'], ['defenceless', 'defenseless'],
+  ['catalogue', 'catalog', 'p'], ['catalogued', 'cataloged'], ['cataloguing', 'cataloging'],
+  ['analogue', 'analog', 'p'], ['encyclopaedia', 'encyclopedia', 'p'], ['paediatric', 'pediatric'],
+  ['paediatrician', 'pediatrician', 'p'], ['anaemia', 'anemia'], ['anaemic', 'anemic'],
+  ['anaesthetic', 'anesthetic', 'p'], ['haemorrhage', 'hemorrhage', 'p'], ['leukaemia', 'leukemia'],
+  ['oestrogen', 'estrogen'], ['foetus', 'fetus', 'p'], ['diarrhoea', 'diarrhea'], ['orthopaedic', 'orthopedic'],
+  ['manoeuvre', 'maneuver', 'p'], ['manoeuvred', 'maneuvered'], ['manoeuvring', 'maneuvering'],
+  ['enrol', 'enroll'], ['enrols', 'enrolls'], ['enrolment', 'enrollment', 'p'], ['fulfil', 'fulfill'],
+  ['fulfils', 'fulfills'], ['fulfilment', 'fulfillment'], ['instalment', 'installment', 'p'],
+  ['skilful', 'skillful'], ['wilful', 'willful'], ['distil', 'distill'], ['woollen', 'woolen'],
+  ['centred', 'centered'], ['centring', 'centering'], ['centrepiece', 'centerpiece', 'p'],
+  ['artefact', 'artifact', 'p'], ['yoghurt', 'yogurt', 'p'], ['speciality', 'specialty'],
+  ['specialities', 'specialties'], ['aeroplane', 'airplane', 'p'], ['mollusc', 'mollusk', 'p'],
+  ['sulphur', 'sulfur'], ['axe', 'ax', 'bp'], ['gaol', 'jail', 'bp'], ['whilst', 'while', 'b'],
+  ['amongst', 'among', 'b'], ['learnt', 'learned', 'b'], ['spelt', 'spelled', 'b'], ['dreamt', 'dreamed', 'b'],
+  ['kerb', 'curb', 'bp'], ['anticlockwise', 'counterclockwise'],
+];
+
+/* ---------- Spelling rules (applied when a word isn't in the dictionary) ---------- */
+const ISE_EXCEPTIONS = new Set((
+  'advertise advise anise appraise apprise arise braise bruise cerise chastise chemise circumcise comprise ' +
+  'compromise concise crise cruise demise denise despise devise disguise elise enterprise excise exercise ' +
+  'exorcise expertise franchise guise improvise incise merchandise moonrise mortise noise otherwise paradise ' +
+  'poise porpoise praise precise premise prise promise raise reprise revise rise sunrise supervise surmise ' +
+  'surprise televise tortoise treatise turquoise uprise valise vise'
+).split(' '));
+const IZE_EXCEPTIONS = new Set('prize capsize seize maize baize assize'.split(' '));
+const OUR_EXCEPTIONS = new Set((
+  'flour scour amour paramour velour glamour contour detour devour troubadour tambour pompadour'
+).split(' '));
+const OR_WORDS = (
+  'arbor ardor armor behavior candor clamor color demeanor discolor dishonor disfavor endeavor enamor ' +
+  'favor fervor flavor harbor honor humor labor misbehavior neighbor odor parlor rancor rigor rumor ' +
+  'savior savor splendor succor tumor valor vapor vigor'
+).split(' ');
+const RE_EXCEPTIONS = new Set((
+  'acre massacre mediocre ogre genre macabre cadre padre timbre lucre nacre euchre chancre oeuvre ' +
+  'wiseacre simulacre ombre andre'
+).split(' '));
+const LL_WORDS = (
+  'travel cancel label model fuel refuel level signal marvel counsel dial total quarrel channel tunnel ' +
+  'funnel shovel panel pencil rival equal dishevel grovel initial jewel libel marshal pedal snorkel swivel ' +
+  'towel unravel ravel yodel bevel chisel enamel gravel kennel revel spiral stencil tinsel barrel cudgel duel'
+).split(' ');
+
+const OUR_SUFFIX = '(s|ed|ing|ite|ites|itism|able|ably|ful|fully|less|er|ers|ist|ists|ism|y|some|hood|hoods|ly|al|ally';
+const RX = {
+  ise: /^(\p{L}{2,}?)is(e|es|ed|ing|er|ers|ation|ations|ational|able|ability)$/u,
+  ize: /^(\p{L}{2,}?)iz(e|es|ed|ing|er|ers|ation|ations|ational|able|ability)$/u,
+  yse: /^(analy|paraly|cataly|dialy|electroly|hydroly)s(e|ed|er|ers|ing)$/u,
+  yze: /^(\p{L}+)yz(e|es|ed|er|ers|ing)$/u,
+  our: new RegExp('^(\\p{L}{2,}?)our' + OUR_SUFFIX + '|ise|ize|ised|ized|ising|izing|isation|ization)?$', 'u'),
+  or: new RegExp('^(' + OR_WORDS.join('|') + ')' + OUR_SUFFIX + ')?$', 'u'),
+  re: /^(\p{L}+[bcdghknstv])re(s)?$/u,
+  er: /^((?:kilo|centi|milli|deci|deca|hecto|micro|nano)?(?:met|lit)|(?:epi)?cent|theat|fib|calib|sab|somb|spect|lust|meag|och|scept|sepulch|mit|nit|goit|philt)er(s|ed|ing)?$/u,
+  llBr: new RegExp('^(' + LL_WORDS.join('|') + ')l(ed|ing|er|ers|or|ors|ous|ously)$', 'u'),
+  lAm: new RegExp('^(' + LL_WORDS.join('|') + ')(ed|ing|er|ers|or|ors|ous|ously)$', 'u'),
+};
+const isVowel = c => 'aeiou'.includes(c);
+
+function britishToAmericanSpelling(w) {
+  w = w.replace(RX.ise, (m, stem, suf) => {
+    const base = stem + 'ise';
+    if (ISE_EXCEPTIONS.has(base) || base.endsWith('wise') || isVowel(stem.slice(-1))) return m;
+    return stem + 'iz' + suf;
+  });
+  w = w.replace(RX.yse, (m, stem, suf) => stem + 'z' + suf);
+  w = w.replace(RX.our, (m, stem, suf = '') => OUR_EXCEPTIONS.has(stem + 'our') ? m : stem + 'or' + suf);
+  w = w.replace(RX.re, (m, stem, s = '') => RE_EXCEPTIONS.has(stem + 're') ? m : stem + 'er' + s);
+  w = w.replace(RX.llBr, (m, base, suf) => base + suf);
+  return w;
+}
+
+function americanToBritishSpelling(w) {
+  w = w.replace(RX.ize, (m, stem, suf) => {
+    const base = stem + 'ize';
+    if (IZE_EXCEPTIONS.has(base) || base.endsWith('size') || isVowel(stem.slice(-1))) return m;
+    return stem + 'is' + suf;
+  });
+  w = w.replace(RX.yze, (m, stem, suf) => stem + 'ys' + suf);
+  w = w.replace(RX.or, (m, base, suf = '') => base.slice(0, -2) + 'our' + suf);
+  w = w.replace(RX.er, (m, stem, suf = '') => stem + (suf === 'ed' ? 'red' : suf === 'ing' ? 'ring' : 're' + suf));
+  w = w.replace(RX.lAm, (m, base, suf) => base + 'l' + suf);
+  return w;
+}
+
+/* ---------- Engine ---------- */
+function pluralize(phrase) {
+  const words = phrase.split(' ');
+  const w = words.pop();
+  let p;
+  if (/man$/i.test(w)) p = w.slice(0, -3) + 'men';
+  else if (/(potato|tomato)$/i.test(w)) p = w + 'es';
+  else if (/(s|x|z|ch|sh)$/i.test(w)) p = w + 'es';
+  else if (/[^aeiou]y$/i.test(w)) p = w.slice(0, -1) + 'ies';
+  else p = w + 's';
+  words.push(p);
+  return words.join(' ');
+}
+
+function buildEngine() {
+  const maps = { b2a: new Map(), a2b: new Map() };
+  const put = (map, k, v) => { k = k.toLowerCase(); if (!map.has(k)) map.set(k, v); };
+  const plurals = [];
+  const add = (list, pluralByDefault) => {
+    for (const [br, am, flags = ''] of list) {
+      const plural = pluralByDefault ? !flags.includes('n') : flags.includes('p');
+      if (!flags.includes('a')) {
+        put(maps.b2a, br, am);
+        if (plural) plurals.push([maps.b2a, pluralize(br), pluralize(am)]);
+      }
+      if (!flags.includes('b')) {
+        put(maps.a2b, am, br);
+        if (plural) plurals.push([maps.a2b, pluralize(am), pluralize(br)]);
+      }
+    }
+  };
+  add(VOCAB, true);
+  add(SPELLING, false);
+  for (const [map, k, v] of plurals) put(map, k, v); // explicit entries always win over generated plurals
+
+  const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const engine = {};
+  for (const dir of ['b2a', 'a2b']) {
+    // Multi-token keys (spaces, hyphens) go in the regex; single words are looked up per token.
+    const phrases = [...maps[dir].keys()].filter(k => /[^\p{L}]/u.test(k)).sort((a, b) => b.length - a.length);
+    const alt = phrases.map(p => esc(p).replace(/ /g, '\\s+')).join('|');
+    engine[dir] = {
+      map: maps[dir],
+      re: new RegExp('(?<![\\p{L}\\p{M}\\p{N}])(?:(' + alt + ')|([\\p{L}\\p{M}]+))(?![\\p{L}\\p{M}\\p{N}])', 'giu'),
+      spell: dir === 'b2a' ? britishToAmericanSpelling : americanToBritishSpelling,
+    };
+  }
+  return engine;
+}
+const ENGINE = buildEngine();
+
+function matchCase(src, repl) {
+  const letters = src.replace(/[^\p{L}]/gu, '');
+  if (letters.length > 1 && letters === letters.toUpperCase() && letters !== letters.toLowerCase()) return repl.toUpperCase();
+  const words = src.split(/[\s-]+/);
+  if (words.length > 1 && words.every(w => /^\p{Lu}/u.test(w))) {
+    return repl.replace(/(^|[\s-])(\p{Ll})/gu, (m, sep, c) => sep + c.toUpperCase());
+  }
+  if (/^\p{Lu}/u.test(src)) return repl.charAt(0).toUpperCase() + repl.slice(1);
+  return repl;
+}
+
+function translate(text, dir) {
+  const { map, re, spell } = ENGINE[dir];
+  const segments = [];
+  let last = 0, changes = 0;
+  for (const m of text.matchAll(re)) {
+    const [original, phrase, word] = m;
+    let repl;
+    if (phrase) repl = map.get(phrase.toLowerCase().replace(/\s+/g, ' '));
+    else {
+      const lw = word.toLowerCase();
+      repl = map.has(lw) ? map.get(lw) : spell(lw);
+    }
+    const out = matchCase(original, repl);
+    if (repl.toLowerCase() === original.toLowerCase().replace(/\s+/g, ' ')) continue;
+    if (m.index > last) segments.push({ text: text.slice(last, m.index) });
+    segments.push({ text: out, original, changed: true });
+    last = m.index + original.length;
+    changes++;
+  }
+  if (last < text.length) segments.push({ text: text.slice(last) });
+  return { segments, changes, text: segments.map(s => s.text).join('') };
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { translate, VOCAB, SPELLING, ENGINE };
+}
+
+/* ---------- UI ---------- */
+if (typeof document !== 'undefined') {
+  const $ = id => document.getElementById(id);
+  const input = $('input'), output = $('output'), status = $('status');
+  const LABELS = { b2a: ['British English', 'American English'], a2b: ['American English', 'British English'] };
+  const EXAMPLES = {
+    b2a: 'Mum parked in the car park, put the shopping in the boot and took the lift up to our flat. ' +
+      'I realised my favourite colour jumper was in the rubbish, so I grabbed my torch and some biscuits, ' +
+      'crisps and chips. We\'re travelling to the theatre in the city centre on holiday — the PRIZE is a size-ten pair of trousers!',
+    a2b: 'Mom parked in the parking lot, put the groceries in the trunk and took the elevator up to our apartment. ' +
+      'I realized my favorite color sweater was in the trash, so I grabbed my flashlight and some cookies, ' +
+      'chips and fries. We\'re traveling to the theater downtown on vacation — the PRIZE is a size-ten pair of pants!',
+  };
+  let dir = 'b2a';
+  const escapeHtml = s => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  let lastText = '';
+
+  function render() {
+    const result = translate(input.value, dir);
+    lastText = result.text;
+    output.innerHTML = input.value ? result.segments.map(s => s.changed
+      ? '<mark title="Original: ' + escapeHtml(s.original) + '">' + escapeHtml(s.text) + '</mark>'
+      : escapeHtml(s.text)).join('') : '';
+    status.textContent = input.value
+      ? (result.changes ? result.changes + (result.changes === 1 ? ' change' : ' changes') : 'No changes needed')
+      : '';
+  }
+
+  function setDir(d) {
+    dir = d;
+    document.querySelectorAll('.toggle button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.dir === d)));
+    $('input-label').textContent = LABELS[d][0];
+    $('output-label').textContent = LABELS[d][1];
+    input.placeholder = 'Type or paste ' + LABELS[d][0] + '…';
+    render();
+  }
+
+  input.addEventListener('input', render);
+  document.querySelectorAll('.toggle button').forEach(b => b.addEventListener('click', () => setDir(b.dataset.dir)));
+  $('swap').addEventListener('click', () => { input.value = lastText; setDir(dir === 'b2a' ? 'a2b' : 'b2a'); input.focus(); });
+  $('example').addEventListener('click', () => { input.value = EXAMPLES[dir]; render(); });
+  $('clear').addEventListener('click', () => { input.value = ''; render(); input.focus(); });
+  $('copy').addEventListener('click', async () => {
+    const btn = $('copy');
+    try { await navigator.clipboard.writeText(lastText); }
+    catch {
+      const ta = Object.assign(document.createElement('textarea'), { value: lastText });
+      document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
+    }
+    btn.textContent = 'Copied'; setTimeout(() => { btn.textContent = 'Copy'; }, 1200);
+  });
+  render();
+}
+</script>
+</body>
+</html>
